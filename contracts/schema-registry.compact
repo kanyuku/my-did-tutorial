@@ -1,0 +1,31 @@
+pragma language_version >= 0.22 && <= 0.23;
+
+export { registerSchema }
+
+import CompactStandardLibrary;
+include 'types';
+
+export ledger schema_registry: Map<Bytes<32>, SchemaMetadata>;
+
+circuit registerSchema(
+    schema_id: Bytes<32>,
+    name: Bytes<32>,
+    version: Uint<8>,
+    creator_pk: Bytes<32>,
+    json_schema_hash: Bytes<32>
+): [] {
+    const d_id = disclose(schema_id);
+    const d_name = disclose(name);
+    const d_version = disclose(version);
+    const d_creator = disclose(creator_pk);
+    const d_hash = disclose(json_schema_hash);
+
+    assert(!schema_registry.member(d_id), "Schema ID already exists");
+    
+    schema_registry.insert(d_id, SchemaMetadata {
+        name: d_name,
+        version: d_version,
+        creator_pk: d_creator,
+        json_schema_hash: d_hash
+    });
+}

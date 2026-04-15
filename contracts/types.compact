@@ -1,0 +1,23 @@
+pragma language_version >= 0.22 && <= 0.23;
+
+export struct DIDEntry {
+    document_commitment: Bytes<32>;
+    controller_pk: Bytes<32>;
+}
+
+export struct SchemaMetadata {
+    name: Bytes<32>;
+    version: Uint<8>;
+    creator_pk: Bytes<32>;
+    json_schema_hash: Bytes<32>;
+}
+
+export enum CredentialStatus { ACTIVE, REVOKED }
+
+export struct IssuanceEntry {
+    holder_did_hash: Bytes<32>;
+    schema_id: Bytes<32>;
+    credential_commitment: Bytes<32>;
+    issuer_pk: Bytes<32>;
+    status: CredentialStatus;
+}

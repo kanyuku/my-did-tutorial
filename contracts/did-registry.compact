@@ -1,0 +1,45 @@
+pragma language_version >= 0.22 && <= 0.23;
+
+export { registerDID, updateDocument }
+
+import CompactStandardLibrary;
+include 'types';
+
+export ledger did_registry: Map<Bytes<32>, DIDEntry>;
+
+witness controller_secret_key(): Bytes<32>;
+
+circuit derive_pk(sk: Bytes<32>): Bytes<32> {
+    return persistentHash<Vector<2, Bytes<32>>>([
+        pad(32, "midnight:pk:"),
+        sk
+    ]);
+}
+
+circuit registerDID(
+    did_id: Bytes<32>,
+    document_commitment: Bytes<32>,
+    controller_pk: Bytes<32>
+): [] {
+    const d_id = disclose(did_id);
+    const d_doc = disclose(document_commitment);
+    const d_pk = disclose(controller_pk);
+
+    assert(!did_registry.member(d_id), "DID already exists");
+    did_registry.insert(d_id, DIDEntry { document_commitment: d_doc, controller_pk: d_pk });
+}
+
+circuit updateDocument(
+    did_id: Bytes<32>,
+    new_commitment: Bytes<32>
+): [] {
+    const d_id = disclose(did_id);
+    const d_new_doc = disclose(new_commitment);
+
+    const entry = did_registry.lookup(d_id);
+    const derived_pk = derive_pk(controller_secret_key());
+
+    assert(entry.controller_pk == derived_pk, "Not authorized to update this DID");
+
+    did_registry.insert(d_id, DIDEntry { document_commitment: d_new_doc, controller_pk: entry.controller_pk });
+}
