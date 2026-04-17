@@ -7,7 +7,9 @@ export {
     verifyAgeOnchain, 
     verifyAccredited, 
     computeAgeCommitment, 
-    computeInvestorCommitment 
+    computeInvestorCommitment,
+    computeKYCCommitment,
+    verifyKYC
 }
 
 export ledger age_proofs: Map<Bytes<32>, Field>;
@@ -28,6 +30,20 @@ export pure circuit computeInvestorCommitment(
 ): Bytes<32> {
     return persistentHash<Vector<2, Bytes<32>>>([
         secret_net_worth as Bytes<32>,
+        secret_salt
+    ]);
+}
+
+export pure circuit computeKYCCommitment(
+    country_code: Bytes<32>,
+    expiry_date: Uint<64>,
+    id_hash: Bytes<32>,
+    secret_salt: Bytes<32>
+): Bytes<32> {
+    return persistentHash<Vector<4, Bytes<32>>>([
+        country_code,
+        expiry_date as Bytes<32>,
+        id_hash,
         secret_salt
     ]);
 }
@@ -74,4 +90,29 @@ export pure circuit verifyAccredited(
 
     assert(computed_commitment == d_expected, "Investor commitment mismatch");
     assert(secret_net_worth >= d_threshold, "User net worth is below the threshold");
+}
+
+export pure circuit verifyKYC(
+    country_code: Bytes<32>,
+    expiry_date: Uint<64>,
+    id_hash: Bytes<32>,
+    secret_salt: Bytes<32>,
+    threshold_expiry: Uint<64>,
+    expected_commitment: Bytes<32>
+): [] {
+    const d_threshold = disclose(threshold_expiry);
+    const d_expected = disclose(expected_commitment);
+
+    const computed_commitment = computeKYCCommitment(country_code, expiry_date, id_hash, secret_salt);
+
+    assert(computed_commitment == d_expected, "KYC commitment mismatch");
+    
+    // 1. Sanctioned country check (Example: "RU")
+    assert(country_code != pad(32, "RU"), "Country is sanctioned");
+
+    // 2. Expiry check
+    assert(expiry_date >= d_threshold, "ID document is expired");
+
+    // 3. Identity Uniqueness (Disclose id_hash so the platforms can prevent multi-accounting)
+    disclose(id_hash);
 }

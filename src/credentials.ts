@@ -88,3 +88,46 @@ export function issueInvestorCredential(
     salt
   };
 }
+
+/**
+ * Issues a KYC Credential.
+ */
+export function issueKYCCredential(
+  issuer: DIDKeyPair,
+  holderDid: string,
+  countryCode: string,
+  expiryDate: number,
+  idNumber: string
+): Credential {
+  const salt = randomBytes(32).toString('hex');
+  const idHash = createHash('sha256').update(idNumber).digest('hex');
+  
+  // Numerical/Byte tracking for commitment (mimicking Compact logic)
+  const countryBuffer = Buffer.alloc(32);
+  countryBuffer.write(countryCode, 0); // "US" -> [85, 83, 0...0]
+
+  const expiryBuffer = Buffer.alloc(32);
+  expiryBuffer.writeBigUInt64BE(BigInt(expiryDate), 24);
+
+  const idHashBuffer = Buffer.from(idHash, 'hex');
+  const saltBuffer = Buffer.from(salt, 'hex');
+
+  const commitment = createHash('sha256')
+    .update(Buffer.concat([countryBuffer, expiryBuffer, idHashBuffer, saltBuffer]))
+    .digest('hex');
+
+  return {
+    id: `vc:kyc:${randomBytes(8).toString('hex')}`,
+    type: ['VerifiableCredential', 'KYCCredential'],
+    issuer: issuer.did,
+    holder: holderDid,
+    issuanceDate: new Date().toISOString(),
+    claims: {
+      countryCode,
+      expiryDate,
+      idHash
+    },
+    commitment,
+    salt
+  };
+}
