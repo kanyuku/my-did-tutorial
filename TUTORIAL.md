@@ -1,12 +1,15 @@
 # Tutorial: Building a Decentralized Identity (DID) System on Midnight
 
-Welcome to the Midnight DID tutorial. In this guide, you will learn how to build a privacy-preserving identity system using **Midnight**, a data-protection blockchain. 
+Welcome to the Midnight DID tutorial. In this guide, you will learn how to build a production-ready, privacy-preserving identity system using **Midnight**, a data-protection blockchain.
 
-By the end of this tutorial, you will have implemented an end-to-end flow where an **Issuer** grants a credential to a **Holder**, who then proves specific facts about that credential to a **Verifier** without revealing any sensitive data.
+By the end of this tutorial, you will have implemented three real-world Zero-Knowledge (ZK) scenarios:
+1.  **Age Verification (18+)**: Prove age without revealing a birthdate.
+2.  **Accredited Investor Status**: Prove wealth ($1M+) without revealing a bank balance.
+3.  **Privacy-Preserving KYC/AML**: Prove nationality and ID validity without creating "data honeypots."
 
 ---
 
-## Prerequisites
+## 1. Prerequisites
 
 - **Midnight Compact Compiler**: v0.30.0+
 - **Midnight SDK**: v4.0.2+
@@ -15,31 +18,9 @@ By the end of this tutorial, you will have implemented an end-to-end flow where 
 
 ---
 
-## 1. Project Initialization
+## 2. Architecting for Privacy
 
-Midnight applications are composed of **Compact** smart contracts (on-chain logic) and **TypeScript/JavaScript** (off-chain logic).
-
-Start by scaffolding your project:
-```bash
-npx @midnight-ntwrk/create-mn-app ./my-did-tutorial
-cd my-did-tutorial
-```
-
-Ensure your `package.json` includes the core Midnight dependencies:
-```json
-"dependencies": {
-  "@midnight-ntwrk/compact-js": "2.5.0",
-  "@midnight-ntwrk/compact-runtime": "0.15.0",
-  "@midnight-ntwrk/midnight-js-http-client-proof-provider": "4.0.2",
-  ...
-}
-```
-
----
-
-## 2. Architecting the Identity Flow
-
-In a DID ecosystem, we have three main actors:
+In a DID ecosystem, we use **Selective Disclosure** to reveal only the minimum necessary information.
 
 ```mermaid
 sequenceDiagram
@@ -47,221 +28,166 @@ sequenceDiagram
     participant Alice (Holder)
     participant Verifier
     
-    Issuer->>Alice (Holder): Issue Credential (contains DOB, Status)
-    Alice (Holder)->>Alice (Holder): Store Private Salt & Metadata
-    Alice (Holder)->>Verifier: Generate ZK Proof (DOB > 18?)
+    Issuer->>Alice (Holder): Issue Credential (contains DOB, Net Worth, Country)
+    Alice (Holder)->>Alice (Holder): Store Private Salt & Metadata locally
+    Alice (Holder)->>Verifier: Generate ZK Proof (e.g. "I am older than 18")
     Verifier->>Verifier: Verify Proof against On-chain Commitment
 ```
 
+The core principle is that **PII (Personally Identifiable Information) never touches the blockchain.** Only a cryptographic **commitment** (a hash) is registered.
+
 ---
 
-## 3. Developing Smart Contracts
+## 3. Developing the Verifier Contract
 
-We will use **Compact**, Midnight's data-protection language.
+We use **Compact**, Midnight's data-protection language, to define "circuits." These circuits verify conditions on private data without seeing the data itself.
 
-### The DID Registry (`did-registry.compact`)
-The registry stores DID documents and public keys. We use a `Map` to store state on the Midnight L1.
+### `verifier.compact`
+
+We use `Uint<64>` for numerical fields like dates and net worth to support threshold comparisons (`<=`, `>=`).
 
 ```compact
 pragma language_version >= 0.22 && <= 0.23;
 
 import CompactStandardLibrary;
 
-export ledger did_registry: Map<Bytes<32>, DIDEntry>;
+export { verifyAge, verifyAccredited, verifyKYC, computeAgeCommitment, computeInvestorCommitment, computeKYCCommitment }
 
-export { registerDID, updateDocument }
-
-circuit registerDID(
-    did_id: Bytes<32>,
-    document_commitment: Bytes<32>,
-    controller_pk: Bytes<32>
-): [] {
-    const d_id = disclose(did_id);
-    const d_doc = disclose(document_commitment);
-    const d_pk = disclose(controller_pk);
-
-    assert(!did_registry.member(d_id), "DID already exists");
-    did_registry.insert(d_id, DIDEntry { document_commitment: d_doc, controller_pk: d_pk });
-}
-```
-
-> [!IMPORTANT]
-> **ZKIR Identification**: In Compact 0.30.0, to ensure your circuits generate Zero-Knowledge IR (ZKIR) and prover keys, ensure they are **exported** and interact with a **Ledger structure** (Map, Cell, or Counter).
-
-### How a DID Gets Registered On-Chain
-
-To understand how this contract interacts with the frontend application, let's trace the journey of a DID from its creation to being committed to the ledger.
-
-**1. Generating the Identity off-chain**
-The journey begins in the TypeScript application where we generate a new DID keypair. We use a derivation function that exactly mirrors the Compact circuit's `derive_pk` logic. This ensures that the same private key controls both the off-chain identity and the on-chain entry.
-
-**2. Encoding Data for the Ledger**
-The `registerDID` circuit expects three fixed-size arguments (`Bytes<32>`). To preserve privacy, we do not send the full DID document to the blockchain. Instead, we hash the DID string and the JSON document using SHA-256:
-- `did_id`: The SHA-256 hash of the DID string, which serves as the map key.
-- `document_commitment`: The SHA-256 hash of the full DID Document JSON.
-- `controller_pk`: The derived raw 32-byte public key.
-
-**3. Submitting the Transaction**
-When the application calls `callTx.registerDID(...)`, the Midnight SDK takes over. It builds an unbalanced transaction, adds DUST fees, signs it with the unshielded keystore, and requests a Zero-Knowledge proof from the local Proof Server (`127.0.0.1:6300`). Finally, the proven transaction is submitted to the Midnight network.
-
-```typescript
-// Example from src/cli.ts
-const didId         = toBytes32Hash(keyPair.did);             // sha256(did string) -> Bytes<32>
-const docCommitment = toBytes32Hash(JSON.stringify(didDoc));  // sha256(DID Document) -> Bytes<32>
-const controllerPk  = hexToBytes32(keyPair.publicKey);        // raw 32-byte pubkey -> Bytes<32>
-
-// Submit to the network!
-const tx = await deployed.callTx.registerDID(didId, docCommitment, controllerPk);
-console.log(`✅ DID registered! Transaction ID: ${tx.public.txId}`);
-```
-
-**4. The On-Chain Circuit Executes**
-Once the network processes the transaction, the `registerDID` circuit executes. The `disclose()` function transitions the private proof inputs into public ledger state. If the DID doesn't already exist, the contract permanently records the commitment and public key in the `did_registry` map.
-
-**The Privacy Result:** The zero-knowledge proof verifies that the controller *knows* the correct inputs without actually revealing the private key. No personal data or full document structure ever touches the public ledger.
-
----
-
-## 4. Zero-Knowledge proofs: The Verifier
-
-The Verifier contract allows Alice to prove she is over 18 without disclosing her actual birth date.
-
-### The ZK Proof Pipeline
-
-Understanding how proofs are generated is critical:
-
-```mermaid
-sequenceDiagram
-    participant App as Alice's App (SDK)
-    participant PS as Proof Server (Docker)
-    participant Keys as Prover Keys (.keys)
-    participant ZKIR as ZKIR Artifact (.zkir)
-    
-    App->>PS: Send Request (Circuit Input + Witnesses)
-    PS->>ZKIR: Load Circuit Logic
-    PS->>Keys: Load Prover Key
-    PS->>PS: Compute Proof (ZK-SNARK)
-    PS-->>App: Return Proof (ZK-Proof + Public Outputs)
-    App->>App: (Optional) Submit to Chain
-```
-
-### `verifier.compact`
-We use `persistentHash` (a ZK-friendly Poseidon hash) to verify a commitment Alice holds.
-
-```compact
-circuit verifyAge(
-    expected_dob: Field,
+// Use Case 1: Numerical Age Threshold
+export pure circuit verifyAge(
+    secret_dob: Uint<64>,
+    secret_salt: Bytes<32>,
+    threshold_dob: Uint<64>,
     expected_commitment: Bytes<32>
 ): [] {
-    const d_exp_dob = disclose(expected_dob);
-    const dob = dateOfBirth(); // Alice's secret witness
-    const s = salt();          // Alice's secret witness
+    const d_threshold = disclose(threshold_dob);
+    const d_expected = disclose(expected_commitment);
+    const computed = computeAgeCommitment(secret_dob, secret_salt);
 
-    // Verify Alice isn't lying about her commitment
-    const computed = persistentHash<Vector<2, Bytes<32>>>([
-        dob as Bytes<32>,
-        s
-    ]);
-    assert(computed == disclose(expected_commitment), "Invalid commitment");
+    assert(computed == d_expected, "Commitment mismatch");
+    // Proof: Alice is older than X (older people have smaller YYYYMMDD values)
+    assert(secret_dob <= d_threshold, "User is too young");
+}
+
+// Use Case 3: Compliance (Sanctions + Expiry)
+export pure circuit verifyKYC(
+    country_code: Bytes<32>,
+    expiry_date: Uint<64>,
+    id_hash: Bytes<32>,
+    secret_salt: Bytes<32>,
+    threshold_expiry: Uint<64>,
+    expected_commitment: Bytes<32>
+): [] {
+    const computed = computeKYCCommitment(country_code, expiry_date, id_hash, secret_salt);
+    assert(computed == disclose(expected_commitment), "KYC commitment mismatch");
     
-    // Prove the age logic without revealing 'dob'
-    assert(dob == d_exp_dob, "Claimed DOB does not match");
+    // 1. Sanctioned country check (Example: "RU")
+    assert(country_code != pad(32, "RU"), "Country is sanctioned");
+
+    // 2. Expiry check
+    assert(expiry_date >= disclose(threshold_expiry), "ID document is expired");
+
+    // 3. Identity Uniqueness
+    disclose(id_hash); // Disclose the hash to prevent duplicate accounts
 }
 ```
 
 ---
 
-## 5. Compiling and generating artifacts
+## 4. Off-Chain Credential Logic
 
-Midnight requires **Prover Keys** to be generated before an application can create private proofs.
+The Issuer generates the credential and the initial commitment. We must ensure the off-chain SHA256 matches the structure the on-chain Poseidon (`persistentHash`) expects.
 
+### `src/credentials.ts`
+
+```typescript
+export function issueKYCCredential(
+  issuer: DIDKeyPair,
+  holderDid: string,
+  countryCode: string,
+  expiryDate: number,
+  idNumber: string
+): Credential {
+  const salt = randomBytes(32).toString('hex');
+  const idHash = createHash('sha256').update(idNumber).digest('hex');
+  
+  // Padding components to 32 bytes to match Compact's Field/Bytes<32>
+  const countryBuffer = Buffer.alloc(32).write(countryCode, 0);
+  const expiryBuffer = Buffer.alloc(32).writeBigUInt64BE(BigInt(expiryDate), 24);
+
+  // Commitment links all private claims together
+  const commitment = createHash('sha256')
+    .update(Buffer.concat([countryBuffer, expiryBuffer, idHashBuffer, saltBuffer]))
+    .digest('hex');
+
+  return { claims: { countryCode, expiryDate, idHash }, commitment, salt };
+}
+```
+
+---
+
+## 5. Generating ZK Proofs
+
+Alice generates a proof by connecting her application to a local **Proof Server**.
+
+### Interactive Verification (`scripts/prove-kyc.ts`)
+
+```typescript
+// 1. Setup Providers
+const zkConfigProvider = new NodeZkConfigProvider(path.resolve('contracts/managed/verifier/compiler'));
+const proofProvider = httpClientProofProvider('http://localhost:6300', zkConfigProvider);
+const verifierInstance = new Contract({});
+
+// 2. Generate Private Proof localy
+await verifierInstance.circuits.verifyKYC(
+    context as any,
+    CountryBytes32,   // Private witness
+    expiryDate,       // Private witness
+    IdHashBytes32,    // Private witness
+    UserSalt,         // Private witness
+    ThresholdExpiry,  // Public input
+    PublicCommitment  // Public input
+);
+```
+
+---
+
+## 6. Testing Guide
+
+### Step 1: Start the Local Proof Server
 ```bash
-npm run compile
+docker run -p 6300:6300 midnightntwrk/proof-server:8.0.3 midnight-proof-server -v
 ```
 
-This generates the `managed/` directory containing:
-- `index.js`: The contract boilerplate for the SDK.
-- `zkir/`: The Zero-Knowledge Intermediate Representation.
-- `keys/`: Prover and Verifier keys used by the proof server.
+### Step 2: Compile Contracts
+```bash
+npm run compile:verifier
+```
+
+### Step 3: Run Interactive Demos
+Execute the scripts and follow the terminal prompts to see ZK privacy in action.
+
+**Age (18+):**
+```bash
+npx tsx scripts/prove-age.ts
+```
+
+**Investor ($1M+):**
+```bash
+npx tsx scripts/prove-investor.ts
+```
+
+**KYC (Compliance):**
+```bash
+npx tsx scripts/prove-kyc.ts
+```
 
 ---
 
-## 6. Integrating the SDK
-
-Using the Midnight SDK, Alice can generate a proof by connecting to a local **Proof Server**.
-
-### Alice's Proof Generation (`prove-age.ts`)
-```typescript
-import { NodeZkConfigProvider } from '@midnight-ntwrk/midnight-js-node-zk-config-provider';
-import { httpClientProofProvider } from '@midnight-ntwrk/midnight-js-http-client-proof-provider';
-
-// 1. Setup providers
-const zkConfigProvider = new NodeZkConfigProvider(path.resolve('managed/verifier/compiler'));
-const proofProvider = httpClientProofProvider('http://localhost:6300', zkConfigProvider);
-
-// 2. Generate Proof
-const result = await verifierInstance.circuits.verifyAge(
-    contextWithProviders,
-    ClaimedDOB,
-    PublicCommitment
-);
-```
-
-### Use Case 2: Accredited Investor Verification (Prove Accreditation Without Revealing Net Worth)
-
-Regulated DeFi pools often require accredited investor status. Disclosing net worth publicly would be a serious privacy violation — and a regulatory risk.
-
-**Credential schema for accreditation (`schemas/investor-credential.json`):**
-```json
-{
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Accredited Investor Schema",
-  "description": "Schema for verifying accredited investor status.",
-  "type": "object",
-  "properties": {
-    "status": {
-      "type": "string",
-      "enum": ["accredited", "non-accredited"]
-    },
-    "accreditationDate": {
-      "type": "string",
-      "format": "date"
-    }
-  },
-  "required": ["status", "accreditationDate"]
-}
-```
-
-**Proof Generation (`prove-investor.ts`):**
-```typescript
-// 1. Setup providers
-const zkConfigProvider = new NodeZkConfigProvider(path.resolve('managed/verifier/compiler'));
-const proofProvider = httpClientProofProvider('http://localhost:6300', zkConfigProvider);
-
-// 2. Generate Proof
-const result = await verifierInstance.circuits.verifyAccredited(
-    contextWithProviders,
-    IsAccreditedStatus,
-    PublicCommitment
-);
-```
-
-### Use Case 3: Privacy-Preserving KYC/AML
-
-Regulated financial services can't simply ignore KYC — but they also don't need to store every user's passport scan in a centralized database. Here's how Midnight enables compliant KYC without a data honeypot.
-
----
-
-## Conclusion
-
-You've built a full Decentralized Identity system on Midnight! This tutorial demonstrated:
-1.  **Selective Disclosure**: Alice proved her age without revealing it.
-2.  **On-Chain Registry**: The Issuer's signature links Alice to her credential.
-3.  **Local Privacy**: Alice generated her own proof locally, keeping her secrets private.
-
-**Next Steps**: 
-- Integrate a real user wallet like **Lace** or **Midnight Dust Wallet**.
-- Deploy your contracts to the **Midnight Preprod** network.
-- Add complex schema validation for different credential types.
+## Summary
+You have successfully built a DID tutorial that leverages:
+- **Numerical Inequalities** in ZK circuits for dynamic thresholding.
+- **Selective Disclosure** to hide sensitive PII while proving compliance.
+- **Multi-Factor Commitments** for robust KYC and AML flows.
 
 Happy coding on Midnight!
