@@ -73,20 +73,20 @@ async function waitForProofServer(maxAttempts = 30, delayMs = 2000): Promise<boo
 }
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const zkConfigPath = path.resolve(__dirname, '..', 'contracts', 'managed', 'did-registry');
+const zkConfigPath = path.resolve(__dirname, '..', 'contracts', 'managed', 'verifier');
 
 // Load compiled contract
 const contractPath = path.join(zkConfigPath, 'contract', 'index.js');
 
 // Check if contract is compiled
 if (!fs.existsSync(contractPath)) {
-  console.error('\n❌ Contract not compiled! Run: npm run compile\n');
+  console.error('\n❌ Contract not compiled! Run: npm run compile:verifier\n');
   process.exit(1);
 }
 
-const DidRegistry = await import(pathToFileURL(contractPath).href);
+const VerifierNode = await import(pathToFileURL(contractPath).href);
 
-const compiledContract = CompiledContract.make('did-registry', DidRegistry.Contract).pipe(
+const compiledContract = CompiledContract.make('verifier', VerifierNode.Contract).pipe(
   CompiledContract.withVacantWitnesses,
   CompiledContract.withCompiledFileAssets(zkConfigPath),
 );
@@ -191,9 +191,9 @@ async function main() {
       }
     }
 
-    if (fs.existsSync('deployment.json')) {
+    if (fs.existsSync('deployment.verifier.json')) {
       try {
-        const existing = JSON.parse(fs.readFileSync('deployment.json', 'utf-8'));
+        const existing = JSON.parse(fs.readFileSync('deployment.verifier.json', 'utf-8'));
         if (existing.contractAddress) existingContract = existing.contractAddress;
       } catch {
         // Ignore parse errors
@@ -324,8 +324,8 @@ async function main() {
       // Save seed for retry
       fs.writeFileSync('.midnight-seed', seed, { mode: 0o600 });
       const partialInfo = { address, network: 'preprod', status: 'proof_server_unavailable' };
-      fs.writeFileSync('deployment.json', JSON.stringify(partialInfo, null, 2));
-      console.log('  Wallet saved to .midnight-seed and deployment.json\n');
+      fs.writeFileSync('deployment.verifier.json', JSON.stringify(partialInfo, null, 2));
+      console.log('  Wallet saved to .midnight-seed and deployment.verifier.json\n');
 
       await walletCtx.wallet.stop();
       process.exit(1);
@@ -370,8 +370,8 @@ async function main() {
 
           fs.writeFileSync('.midnight-seed', seed, { mode: 0o600 });
           const partialInfo = { address, network: 'preprod', status: 'proof_server_error' };
-          fs.writeFileSync('deployment.json', JSON.stringify(partialInfo, null, 2));
-          console.log('  Wallet saved to .midnight-seed and deployment.json\n');
+          fs.writeFileSync('deployment.verifier.json', JSON.stringify(partialInfo, null, 2));
+          console.log('  Wallet saved to .midnight-seed and deployment.verifier.json\n');
 
           await walletCtx.wallet.stop();
           process.exit(1);
@@ -419,8 +419,8 @@ async function main() {
               status: 'pending_dust',
               lastAttempt: new Date().toISOString(),
             };
-            fs.writeFileSync('deployment.json', JSON.stringify(partialInfo, null, 2));
-            console.log('  Wallet saved to .midnight-seed and deployment.json\n');
+            fs.writeFileSync('deployment.verifier.json', JSON.stringify(partialInfo, null, 2));
+            console.log('  Wallet saved to .midnight-seed and deployment.verifier.json\n');
 
             await walletCtx.wallet.stop();
             process.exit(1);
@@ -448,8 +448,8 @@ async function main() {
       deployedAt: new Date().toISOString(),
     };
 
-    fs.writeFileSync('deployment.json', JSON.stringify(deploymentInfo, null, 2));
-    console.log('  Saved to deployment.json\n');
+    fs.writeFileSync('deployment.verifier.json', JSON.stringify(deploymentInfo, null, 2));
+    console.log('  Saved to deployment.verifier.json\n');
 
     await walletCtx.wallet.stop();
     console.log('─── Deployment Complete! ───────────────────────────────────────\n');

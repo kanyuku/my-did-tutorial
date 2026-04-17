@@ -15,9 +15,9 @@ export interface DIDKeyPair {
 function deriveCompactPk(privateKeyHex: string): string {
   const prefix = Buffer.alloc(32);
   prefix.write("midnight:pk:", 0, "utf8"); // 12 bytes + 20 zeros
-  
+
   const sk = Buffer.from(privateKeyHex, 'hex');
-  
+
   // Simulation of persistentHash using sha256 for this demo
   return createHash('sha256')
     .update(Buffer.concat([prefix, sk]))
@@ -27,7 +27,7 @@ function deriveCompactPk(privateKeyHex: string): string {
 export function generateDID(): DIDKeyPair {
   const privateKeyBytes = randomBytes(32);
   const privateKey = privateKeyBytes.toString('hex');
-  
+
   // Use the Compact-compatible derivation
   const publicKey = deriveCompactPk(privateKey);
 
@@ -35,6 +35,19 @@ export function generateDID(): DIDKeyPair {
   const did = `did:${DID_METHOD}:${didIdentifier}`;
 
   return { did, publicKey, privateKey };
+}
+
+export interface DIDDocument {
+  '@context': string[];
+  id: string;
+  verificationMethod: Array<{
+    id: string;
+    type: string;
+    controller: string;
+    publicKeyHex: string;
+  }>;
+  authentication: string[];
+  assertionMethod: string[];
 }
 
 export function createDIDDocument(keyPair: DIDKeyPair): DIDDocument {
