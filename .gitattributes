@@ -1,0 +1,2 @@
+# Map Compact files to Rust for syntax highlighting and statistics on GitHub
+*.compact linguist-language=Rust
