@@ -69,42 +69,49 @@ async function runProof() {
 
     // 2. Synchronize our commitment hash with the Compact circuit using the pure computeCommitment
     console.log("  [Crypto] Computing matching persistentHash commitment...");
+    const secretDOBBigInt = BigInt(numericalDOB);
     const { result: PublicCommitment } = await verifierInstance.circuits.computeCommitment(
         context as any,
-        secretDOBBytes,
+        secretDOBBigInt,
         UserSalt
     );
 
+    // 3. Define the Age Threshold (18 years ago from today)
+    const today = new Date();
+    const thresholdDate = new Date(today.getFullYear() - 18, today.getMonth(), today.getDate());
+    const thresholdDOB = BigInt(thresholdDate.toISOString().slice(0, 10).replace(/-/g, ''));
+    
+    console.log(`  [Policy] Proving age is >= 18 (DOB <= ${thresholdDOB})...`);
     console.log("  Generating cryptographic proof (this keeps your DOB hidden)...");
 
     try {
-        // 3. Test Pure Offchain Circuit
+        // 4. Test Pure Offchain Circuit
         console.log("\n  --- TEST 1: OFFCHAIN VERIFICATION (Pure Circuit) ---");
         await verifierInstance.circuits.verifyAge(
             context as any,
-            secretDOBBytes,         // The secret you just typed
-            UserSalt,               // Your dynamically generated secret salt
-            secretDOBBytes,         // The public expected claim limit
-            PublicCommitment        // The expected ledger commitment
+            secretDOBBigInt,        // The secret you just typed (Private)
+            UserSalt,               // Your dynamically generated secret salt (Private)
+            thresholdDOB,           // The 18+ threshold (Public)
+            PublicCommitment        // The expected ledger commitment (Public)
         );
 
         console.log("  ✅ OFFCHAIN ZK Proof Generated Successfully!");
 
-        // 4. Test Onchain Circuit
+        // 5. Test Onchain Circuit
         console.log("\n  --- TEST 2: ONCHAIN VERIFICATION (Stateful Circuit) ---");
         console.log("  (Stateful circuits like verifyAgeOnchain write to the blockchain ledger.");
         console.log("  To fully execute them, the contract must be deployed on a Midnight Network node.)");
         await verifierInstance.circuits.verifyAgeOnchain(
             context as any,
-            secretDOBBytes,
+            secretDOBBigInt,
             UserSalt,
-            secretDOBBytes,
+            thresholdDOB,
             PublicCommitment
         );
 
         console.log("  ONCHAIN ZK Proof Verification Succeeded (Simulated)");
-        console.log(`  Both tests proved to the network that your DOB satisfies the check`);
-        console.log(`  WITHOUT actually broadcasting '${numericalDOB}' to the internet.`);
+        console.log(`  Both tests proved to the network that your age satisfies the 18+ condition`);
+        console.log(`  WITHOUT disclosing your birthdate (${numericalDOB}) to the verifier.`);
 
     } catch (error) {
         console.error("\n  Proof Generation Failed:", error);

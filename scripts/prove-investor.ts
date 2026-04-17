@@ -3,19 +3,31 @@ import { httpClientProofProvider } from '@midnight-ntwrk/midnight-js-http-client
 import { dummyContractAddress, emptyRunningCost } from '@midnight-ntwrk/compact-runtime';
 import { Contract } from '../contracts/managed/verifier/contract/index.js';
 import * as path from 'path';
+import { createInterface } from 'node:readline/promises';
+import { stdin, stdout } from 'node:process';
+import { generateDID } from '../src/did.js';
+import { issueInvestorCredential } from '../src/credentials.js';
 
 /**
- * SELECTIVE DISCLOSURE PROOF DEMO
- * alice generates a ZK proof that she is an accredited investor 
- * without revealing her actual net worth.
+ * SELECTIVE DISCLOSURE PROOF DEMO (Interactive)
+ * Alice generates a ZK proof that she is an accredited investor 
+ * (Net Worth >= $1,000,000) without revealing her actual net worth.
  */
 
 async function runProof() {
-    console.log("--- Starting Selective Disclosure Proof Generation (Accreditation) ---");
+    console.log("╔══════════════════════════════════════════════╗");
+    console.log("║    Interactive Investor ZK Proof Demo        ║");
+    console.log("╚══════════════════════════════════════════════╝\n");
 
-    const IsAccredited = 1n; // 1 means true/accredited
-    const AliceCommitment = new Uint8Array(32); 
+    const rl = createInterface({ input: stdin, output: stdout });
+    const netWorthInput = await rl.question('  Enter your secret Net Worth (USD): ');
+    rl.close();
+
+    const numericalNetWorth = BigInt(netWorthInput.trim());
+    const Threshold = 1000000n; // $1,000,000 USD
     
+    console.log(`\n  [Local Storage] Secret Net Worth recorded as: $${numericalNetWorth.toLocaleString()}`);
+
     // 1. Initialize Providers
     const zkConfigProvider = new NodeZkConfigProvider(
         path.resolve('contracts/managed/verifier/compiler')
@@ -25,33 +37,53 @@ async function runProof() {
         zkConfigProvider
     );
 
-    // 2. Initialize Contract Instance
     const verifierInstance = new Contract({});
 
-    console.log("Generating Zero-Knowledge Proof via Proof Server...");
+    // 2. Issue a dynamic credential to get a real salt
+    console.log("  [DApp] Issuing an Investor VC to Alice...");
+    const issuer = generateDID();
+    const holder = generateDID();
+    const credential = issueInvestorCredential(issuer, holder.did, new Date().toISOString(), Number(numericalNetWorth));
     
+    const UserSalt = new Uint8Array(Buffer.from(credential.salt, 'hex'));
+
     try {
         const context = {
             proofProvider,
             zkConfigProvider,
             currentQueryContext: {
                 address: dummyContractAddress(),
+                query: async () => [] 
             },
             gasCost: emptyRunningCost()
         };
 
-        // Pure circuit 'verifyAccredited' expects: context, status, expected_commitment
-        await verifierInstance.circuits.verifyAccredited(
+        // 3. Compute matching persistentHash commitment
+        console.log("  [Crypto] Computing matching persistentHash commitment...");
+        const { result: PublicCommitment } = await verifierInstance.circuits.computeInvestorCommitment(
             context as any,
-            IsAccredited,
-            AliceCommitment
+            numericalNetWorth,
+            UserSalt
         );
 
-        console.log("✅ ZK Proof Generated Successfully!");
-        console.log("The Proof Server processed the pure circuit IsAccredited == 1.");
+        console.log(`  [Policy] Proving Net Worth is >= $${Threshold.toLocaleString()}...`);
+        console.log("  Generating cryptographic proof (this keeps your Net Worth hidden)...");
+
+        // 4. Verify Accreditation (Pure Circuit)
+        await verifierInstance.circuits.verifyAccredited(
+            context as any,
+            numericalNetWorth,    // Private
+            UserSalt,             // Private
+            Threshold,            // Public
+            PublicCommitment      // Public
+        );
+
+        console.log("\n  ✅ ZK Proof Generated Successfully!");
+        console.log(`  You have proved to the verifier that you meet the $${Threshold.toLocaleString()} threshold`);
+        console.log(`  WITHOUT disclosing your actual net worth ($${numericalNetWorth.toLocaleString()}).`);
 
     } catch (error) {
-        console.error("❌ Proof Generation Failed:", error);
+        console.error("\n  ❌ Proof Generation Failed:", error);
     }
 }
 

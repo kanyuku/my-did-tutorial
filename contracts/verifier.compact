@@ -1,50 +1,60 @@
 pragma language_version >= 0.22 && <= 0.23;
 
-export { verifyAge, verifyAgeOnchain, verifyAccredited, computeCommitment }
-
 import CompactStandardLibrary;
+
+export { 
+    verifyAge, 
+    verifyAgeOnchain, 
+    verifyAccredited, 
+    computeAgeCommitment, 
+    computeInvestorCommitment 
+}
 
 export ledger age_proofs: Map<Bytes<32>, Field>;
 
-witness dateOfBirth(): Field;
-witness salt(): Bytes<32>;
-witness accreditedStatus(): Field;
-
-export pure circuit computeCommitment(
-    secret_dob: Bytes<32>,
+export pure circuit computeAgeCommitment(
+    secret_dob: Uint<64>,
     secret_salt: Bytes<32>
 ): Bytes<32> {
     return persistentHash<Vector<2, Bytes<32>>>([
-        secret_dob,
+        secret_dob as Bytes<32>,
+        secret_salt
+    ]);
+}
+
+export pure circuit computeInvestorCommitment(
+    secret_net_worth: Uint<64>,
+    secret_salt: Bytes<32>
+): Bytes<32> {
+    return persistentHash<Vector<2, Bytes<32>>>([
+        secret_net_worth as Bytes<32>,
         secret_salt
     ]);
 }
 
 export pure circuit verifyAge(
-    secret_dob: Bytes<32>,
+    secret_dob: Uint<64>,
     secret_salt: Bytes<32>,
-    expected_dob: Bytes<32>,
+    threshold_dob: Uint<64>,
     expected_commitment: Bytes<32>
 ): [] {
-    const d_exp_dob = disclose(expected_dob);
+    const d_threshold = disclose(threshold_dob);
     const d_expected = disclose(expected_commitment);
 
-    const computed_commitment = persistentHash<Vector<2, Bytes<32>>>([
-        secret_dob,
-        secret_salt
-    ]);
+    const computed_commitment = computeAgeCommitment(secret_dob, secret_salt);
 
-    assert(computed_commitment == d_expected, "Commitment mismatch");
-    assert(secret_dob == d_exp_dob, "Age threshold check failed");
+    assert(computed_commitment == d_expected, "Age commitment mismatch");
+    // Numerical check: older persons have LOWER YYYYMMDD values
+    assert(secret_dob <= d_threshold, "User does not meet the age requirement");
 }
 
 export circuit verifyAgeOnchain(
-    secret_dob: Bytes<32>,
+    secret_dob: Uint<64>,
     secret_salt: Bytes<32>,
-    expected_dob: Bytes<32>,
+    threshold_dob: Uint<64>,
     expected_commitment: Bytes<32>
 ): [] {
-    verifyAge(secret_dob, secret_salt, expected_dob, expected_commitment);
+    verifyAge(secret_dob, secret_salt, threshold_dob, expected_commitment);
     
     // Store proof success on the ledger (simulating an onchain DApp action)
     const d_expected_commitment = disclose(expected_commitment);
@@ -52,9 +62,16 @@ export circuit verifyAgeOnchain(
 }
 
 export pure circuit verifyAccredited(
-    status: Field,
+    secret_net_worth: Uint<64>,
+    secret_salt: Bytes<32>,
+    threshold_net_worth: Uint<64>,
     expected_commitment: Bytes<32>
 ): [] {
+    const d_threshold = disclose(threshold_net_worth);
     const d_expected = disclose(expected_commitment);
-    assert(status == 1 as Field, "User is not accredited");
+
+    const computed_commitment = computeInvestorCommitment(secret_net_worth, secret_salt);
+
+    assert(computed_commitment == d_expected, "Investor commitment mismatch");
+    assert(secret_net_worth >= d_threshold, "User net worth is below the threshold");
 }

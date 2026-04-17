@@ -14,8 +14,11 @@ export interface Credential {
 
 /**
  * Issues an Age Credential for a holder.
- * Note: In a production ZK system, the commitment would be generated using a 
- * SNARK-friendly hash like Poseidon or persistentHash.
+ * 
+ * IMPORTANT: In this tutorial, the commitment in the credential object uses SHA256 
+ * for simplicity. However, the Midnight ZK circuits use 'persistentHash' (Poseidon).
+ * The `scripts/prove-age.ts` handles this by re-computing the correct SNARK-friendly 
+ * commitment during proof generation.
  */
 export function issueAgeCredential(
   issuer: DIDKeyPair,
@@ -56,18 +59,18 @@ export function issueAgeCredential(
 export function issueInvestorCredential(
   issuer: DIDKeyPair,
   holderDid: string,
-  date: string
+  date: string,
+  netWorth: number
 ): Credential {
   const salt = randomBytes(32).toString('hex');
   
-  // Commitment that the user is "accredited"
-  const status = 1; // 1 for ACTIVE/Accredited
-  const statusBuffer = Buffer.alloc(32);
-  statusBuffer.writeUInt8(status, 31);
+  // Numerical Net Worth tracking
+  const netWorthBuffer = Buffer.alloc(32);
+  netWorthBuffer.writeBigUInt64BE(BigInt(netWorth), 24); // 8 bytes for Uint64 at the end of 32 bytes
 
   const saltBuffer = Buffer.from(salt, 'hex');
   const commitment = createHash('sha256')
-    .update(Buffer.concat([statusBuffer, saltBuffer]))
+    .update(Buffer.concat([netWorthBuffer, saltBuffer]))
     .digest('hex');
 
   return {
@@ -78,7 +81,8 @@ export function issueInvestorCredential(
     issuanceDate: new Date().toISOString(),
     claims: {
       status: 'accredited',
-      accreditationDate: date
+      accreditationDate: date,
+      netWorth
     },
     commitment,
     salt
