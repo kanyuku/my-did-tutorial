@@ -27,7 +27,8 @@ async function main() {
   const investorCredential = issueInvestorCredential(
     issuer,
     holder.did,
-    '2024-01-10'
+    '2024-01-10',
+    1500000 // Added net worth value
   );
 
   console.log("\nAge Credential Issued (over 18)");

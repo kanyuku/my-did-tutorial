@@ -13,12 +13,28 @@ export interface Credential {
 }
 
 /**
+ * PRIVACY GUARANTEE:
+ * 1. Data Minimization: We only commit a hash of the data to the ledger.
+ * 2. Unlinkability: Each credential uses a unique high-entropy 'salt'. 
+ *    Even if two credentials contain the same data (same DOB), their 
+ *    commitments will look completely unrelated on-chain.
+ */
+
+/**
  * Issues an Age Credential for a holder.
  * 
- * IMPORTANT: In this tutorial, the commitment in the credential object uses SHA256 
- * for simplicity. However, the Midnight ZK circuits use 'persistentHash' (Poseidon).
- * The `scripts/prove-age.ts` handles this by re-computing the correct SNARK-friendly 
- * commitment during proof generation.
+ * Cryptographic logic (Commitment Scheme):
+ * 1. Generates a 32-byte high-entropy salt.
+ * 2. Formats the private Date of Birth (DOB) into a ZK-friendly numerical format.
+ * 3. Creates a 'commitment' = Hash(PrivateData || Salt).
+ * 
+ * This commitment is shared on-chain. When proving age, the holder provides the 
+ * original DOB and salt as secret witnesses to the ZK circuit. The circuit 
+ * re-computes the hash and verifies it matches the on-chain commitment without 
+ * revealing the DOB.
+ * 
+ * IMPORTANT: This simulation uses SHA256. The actual Midnight circuits use 
+ * Poseidon ('persistentHash') for efficiency within the SNARK.
  */
 export function issueAgeCredential(
   issuer: DIDKeyPair,

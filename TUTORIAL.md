@@ -9,6 +9,15 @@ By the end of this tutorial, you will have implemented three real-world Zero-Kno
 
 ---
 
+## 0. Glossary for ZK Newcomers
+
+Before we dive in, let's define three core concepts you'll encounter:
+- **Commitment**: A cryptographic "fingerprint" of your data (like a hash). You publish this on-chain. It doesn't reveal your data, but it "commits" you to it.
+- **Witness**: The private data (like your birthday) that you provide *locally* to the ZK circuit. It never leaves your machine.
+- **Proof**: The mathematical output of the ZK circuit. It proves that "I know a **Witness** that matches the on-chain **Commitment** and satisfies the rule (e.g., age > 18)."
+
+---
+
 ## 1. Prerequisites
 
 - **Midnight Compact Compiler**: v0.30.0+
@@ -22,19 +31,55 @@ By the end of this tutorial, you will have implemented three real-world Zero-Kno
 
 In a DID ecosystem, we use **Selective Disclosure** to reveal only the minimum necessary information.
 
+### A. Credential Issuance Flow
+This flow shows how an Issuer (like a KYC provider) gives a credential to a Holder (Alice) without putting her data on the ledger.
+
 ```mermaid
 sequenceDiagram
     participant Issuer
-    participant Alice (Holder)
-    participant Verifier
+    participant Holder as Alice (Holder)
+    participant Ledger as Midnight Ledger
+
+    Note over Alice: Generates DID locally
+    Alice->>Ledger: Register DID (Public Key only)
     
-    Issuer->>Alice (Holder): Issue Credential (contains DOB, Net Worth, Country)
-    Alice (Holder)->>Alice (Holder): Store Private Salt & Metadata locally
-    Alice (Holder)->>Verifier: Generate ZK Proof (e.g. "I am older than 18")
-    Verifier->>Verifier: Verify Proof against On-chain Commitment
+    Issuer->>Issuer: Verify Alice's DOB (Off-chain)
+    Note over Issuer: commitment = Hash(DOB + Salt)
+    
+    Issuer->>Alice: Sends VC (DOB, Salt, Commitment)
+    Issuer->>Ledger: Publish Commitment (On-chain)
+    
+    Note over Ledger: Only the Commitment is public.
+    Note over Ledger: DOB remains private to Alice.
 ```
 
-The core principle is that **PII (Personally Identifiable Information) never touches the blockchain.** Only a cryptographic **commitment** (a hash) is registered.
+### B. Selective Disclosure Verification Flow
+This flow shows how Alice proves she is over 18 without revealing her birth date.
+
+```mermaid
+sequenceDiagram
+    participant Alice as Alice (Prover)
+    participant Verifier as DApp (Verifier)
+    participant Ledger as Midnight Ledger
+
+    Verifier->>Alice: Request "Are you 18+?"
+    Note over Alice: Loads secret DOB & Salt
+    
+    Alice->>Alice: Generate ZK Proof locally
+    Note over Alice: Proof says: "I know a DOB/Salt <br/>that matches Commitment <br/>and DOB <= Threshold"
+    
+    Alice->>Verifier: Send ZK Proof
+    Verifier->>Ledger: Verify Proof against Commitment
+    
+    alt Proof is valid
+        Verifier->>Alice: Access Granted
+    else Proof is invalid
+        Verifier->>Alice: Access Denied
+    end
+```
+
+> [!TIP]
+> **Privacy Guarantee**: The core principle is that **PII (Personally Identifiable Information) never touches the blockchain.** Only a cryptographic commitment is registered.
 
 ---
 
@@ -43,8 +88,6 @@ The core principle is that **PII (Personally Identifiable Information) never tou
 We use **Compact**, Midnight's data-protection language, to define "circuits." These circuits verify conditions on private data without seeing the data itself.
 
 ### `verifier.compact`
-
-We use `Uint<64>` for numerical fields like dates and net worth to support threshold comparisons (`<=`, `>=`).
 
 ```compact
 pragma language_version >= 0.22 && <= 0.23;
@@ -69,58 +112,39 @@ export pure circuit verifyAge(
     assert(secret_dob <= d_threshold, "User is too young");
 }
 
-// Use Case 3: Compliance (Sanctions + Expiry)
-export pure circuit verifyKYC(
-    country_code: Bytes<32>,
-    expiry_date: Uint<64>,
-    id_hash: Bytes<32>,
-    secret_salt: Bytes<32>,
-    threshold_expiry: Uint<64>,
-    expected_commitment: Bytes<32>
-): [] {
-    const computed = computeKYCCommitment(country_code, expiry_date, id_hash, secret_salt);
-    assert(computed == disclose(expected_commitment), "KYC commitment mismatch");
-    
-    // 1. Sanctioned country check (Example: "RU")
-    assert(country_code != pad(32, "RU"), "Country is sanctioned");
-
-    // 2. Expiry check
-    assert(expiry_date >= disclose(threshold_expiry), "ID document is expired");
-
-    // 3. Identity Uniqueness
-    disclose(id_hash); // Disclose the hash to prevent duplicate accounts
-}
+// ... Additional circuits for Investors and KYC ...
 ```
+
+> [!IMPORTANT]
+> **Privacy Guarantee**: The `secret_dob` and `secret_salt` are **private witnesses**. They are processed locally and are NEVER disclosed. Only the result of the `assert` contributes to the proof.
 
 ---
 
 ## 4. Off-Chain Credential Logic
 
-The Issuer generates the credential and the initial commitment. We must ensure the off-chain SHA256 matches the structure the on-chain Poseidon (`persistentHash`) expects.
+The Issuer generates the credential. We use a **Salt** (random data) to ensure that even if two people have the same birthdate, their on-chain commitments look completely different. This prevents "correlation attacks."
 
 ### `src/credentials.ts`
 
 ```typescript
-export function issueKYCCredential(
+export function issueAgeCredential(
   issuer: DIDKeyPair,
   holderDid: string,
-  countryCode: string,
-  expiryDate: number,
-  idNumber: string
+  dob: string,
+  threshold: number
 ): Credential {
   const salt = randomBytes(32).toString('hex');
-  const idHash = createHash('sha256').update(idNumber).digest('hex');
+  const dobNum = parseInt(dob.replace(/-/g, '')); // YYYYMMDD
   
-  // Padding components to 32 bytes to match Compact's Field/Bytes<32>
-  const countryBuffer = Buffer.alloc(32).write(countryCode, 0);
-  const expiryBuffer = Buffer.alloc(32).writeBigUInt64BE(BigInt(expiryDate), 24);
+  // Padding to 32 bytes to match Compact's Bytes<32>
+  const dobBuffer = Buffer.alloc(32);
+  dobBuffer.writeUInt32BE(dobNum, 28);
 
-  // Commitment links all private claims together
   const commitment = createHash('sha256')
-    .update(Buffer.concat([countryBuffer, expiryBuffer, idHashBuffer, saltBuffer]))
+    .update(Buffer.concat([dobBuffer, Buffer.from(salt, 'hex')]))
     .digest('hex');
 
-  return { claims: { countryCode, expiryDate, idHash }, commitment, salt };
+  return { claims: { dateOfBirth: dob }, commitment, salt };
 }
 ```
 
@@ -128,9 +152,9 @@ export function issueKYCCredential(
 
 ## 5. Generating ZK Proofs
 
-Alice generates a proof by connecting her application to a local **Proof Server**.
+Alice generates a proof by connecting her application to a local **Proof Server**. This server performs the heavy mathematical lifting for the SNARK (Succinct Non-interactive ARgument of Knowledge).
 
-### Interactive Verification (`scripts/prove-kyc.ts`)
+### Interactive Verification (`scripts/prove-age.ts`)
 
 ```typescript
 // 1. Setup Providers
@@ -138,17 +162,18 @@ const zkConfigProvider = new NodeZkConfigProvider(path.resolve('contracts/manage
 const proofProvider = httpClientProofProvider('http://localhost:6300', zkConfigProvider);
 const verifierInstance = new Contract({});
 
-// 2. Generate Private Proof localy
-await verifierInstance.circuits.verifyKYC(
+// 2. Generate Private Proof locally
+await verifierInstance.circuits.verifyAge(
     context as any,
-    CountryBytes32,   // Private witness
-    expiryDate,       // Private witness
-    IdHashBytes32,    // Private witness
-    UserSalt,         // Private witness
-    ThresholdExpiry,  // Public input
-    PublicCommitment  // Public input
+    secretDOBBigInt,   // Private witness (Witness)
+    UserSalt,          // Private witness (Witness)
+    thresholdDOB,      // Public input
+    PublicCommitment   // Public input
 );
 ```
+
+> [!TIP]
+> **Privacy Guarantee**: Even if the Verifier captures the ZK proof, they cannot "reverse" it to find your birthdate. The proof is a one-way mathematical guarantee.
 
 ---
 
@@ -169,17 +194,17 @@ Execute the scripts and follow the terminal prompts to see ZK privacy in action.
 
 **Age (18+):**
 ```bash
-npx tsx scripts/prove-age.ts
+npm run prove:age
 ```
 
 **Investor ($1M+):**
 ```bash
-npx tsx scripts/prove-investor.ts
+npm run prove:investor
 ```
 
 **KYC (Compliance):**
 ```bash
-npx tsx scripts/prove-kyc.ts
+npm run prove:kyc
 ```
 
 ---
@@ -188,6 +213,6 @@ npx tsx scripts/prove-kyc.ts
 You have successfully built a DID tutorial that leverages:
 - **Numerical Inequalities** in ZK circuits for dynamic thresholding.
 - **Selective Disclosure** to hide sensitive PII while proving compliance.
-- **Multi-Factor Commitments** for robust KYC and AML flows.
+- **Salted Commitments** to prevent user tracking across different platforms.
 
 Happy coding on Midnight!

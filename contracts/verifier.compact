@@ -2,6 +2,13 @@ pragma language_version >= 0.22 && <= 0.23;
 
 import CompactStandardLibrary;
 
+/**
+ * Verifier Contract
+ * 
+ * This contract handles the Zero-Knowledge Selective Disclosure proofs.
+ * Its purpose is to verify that a holder's private data (witnesses) meets 
+ * specific criteria without revealing that data.
+ */
 export { 
     verifyAge, 
     verifyAgeOnchain, 
@@ -48,6 +55,14 @@ export pure circuit computeKYCCommitment(
     ]);
 }
 
+/**
+ * Verifies that a user is of a certain age without revealing their DOB.
+ * 
+ * Logic:
+ * 1. Computes the commitment from secret DOB and Salt.
+ * 2. Compares it against the publicly shared 'expected_commitment'.
+ * 3. Checks if DOB <= threshold (YYYYMMDD format: smaller value means older).
+ */
 export pure circuit verifyAge(
     secret_dob: Uint<64>,
     secret_salt: Bytes<32>,

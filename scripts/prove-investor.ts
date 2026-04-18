@@ -12,6 +12,10 @@ import { issueInvestorCredential } from '../src/credentials.js';
  * SELECTIVE DISCLOSURE PROOF DEMO (Interactive)
  * Alice generates a ZK proof that she is an accredited investor 
  * (Net Worth >= $1,000,000) without revealing her actual net worth.
+ * 
+ * PRIVACY GUARANTEE:
+ * Your actual financial data (Net Worth) never leaves your device.
+ * The proof only confirms you meet the threshold.
  */
 
 async function runProof() {
@@ -78,12 +82,18 @@ async function runProof() {
             PublicCommitment      // Public
         );
 
-        console.log("\n  ✅ ZK Proof Generated Successfully!");
+        console.log("\n  SUCCESS: ZK Proof Generated Successfully!");
         console.log(`  You have proved to the verifier that you meet the $${Threshold.toLocaleString()} threshold`);
         console.log(`  WITHOUT disclosing your actual net worth ($${numericalNetWorth.toLocaleString()}).`);
 
-    } catch (error) {
-        console.error("\n  ❌ Proof Generation Failed:", error);
+    } catch (error: any) {
+        if (error.message?.includes('fetch failed') || error.message?.includes('ECONNREFUSED')) {
+            console.error("\n  ❌ ERROR: Could not connect to the Midnight Proof Server.");
+            console.error("  Please ensure the sidecar is running:");
+            console.error("  docker run -p 6300:6300 midnightntwrk/proof-server:8.0.3\n");
+        } else {
+            console.error("\n  ERROR: Proof Generation Failed:", error);
+        }
     }
 }
 

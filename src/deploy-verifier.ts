@@ -80,7 +80,7 @@ const contractPath = path.join(zkConfigPath, 'contract', 'index.js');
 
 // Check if contract is compiled
 if (!fs.existsSync(contractPath)) {
-  console.error('\n❌ Contract not compiled! Run: npm run compile:verifier\n');
+  console.error('\nERROR: Contract not compiled! Run: npm run compile:verifier\n');
   process.exit(1);
 }
 
@@ -232,7 +232,7 @@ async function main() {
 
         if (choice.trim() !== '2') {
           fs.writeFileSync('.midnight-seed', seed, { mode: 0o600 });
-          console.log('\n  ⚠️  A new wallet seed has been generated.');
+          console.log('\n  WARNING: A new wallet seed has been generated.');
           console.log('  It has been saved to .midnight-seed (chmod 600).');
           console.log('  Back it up securely and never commit this file.\n');
         }
@@ -245,7 +245,7 @@ async function main() {
 
       if (choice.trim() !== '2') {
         fs.writeFileSync('.midnight-seed', seed, { mode: 0o600 });
-        console.log('\n  ⚠️  A new wallet seed has been generated.');
+        console.log('\n  WARNING: A new wallet seed has been generated.');
         console.log('  It has been saved to .midnight-seed (chmod 600).');
         console.log('  Back it up securely and never commit this file.\n');
       }
@@ -311,7 +311,7 @@ async function main() {
     console.log('  Checking proof server...');
     const proofServerReady = await waitForProofServer();
     if (!proofServerReady) {
-      console.log('\n  ❌ Proof server not responding\n');
+      console.log('\n  ERROR: Proof server not responding\n');
       console.log('  The proof server is required to generate zk-proofs for transactions.\n');
       console.log('  ┌─ Start it with ──────────────────────────────────────────────┐');
       console.log('  │                                                              │');
@@ -358,7 +358,7 @@ async function main() {
         if (fullError.includes('Failed to connect to Proof Server') || 
             fullError.includes('Failed to prove') ||
             fullError.includes('127.0.0.1:6300')) {
-          console.log('  ❌ Proof server error\n');
+          console.log('  ERROR: Proof server error\n');
           console.log('  The proof server may have stopped or crashed.\n');
           console.log('  ┌─ Fix ────────────────────────────────────────────────────────┐');
           console.log('  │                                                              │');
@@ -396,7 +396,7 @@ async function main() {
           } else {
             // All retries exhausted
             console.log('  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-            console.log('  ❌ Not enough DUST for transaction fees\n');
+            console.log('  ERROR: Not enough DUST for transaction fees\n');
             console.log(`     Current DUST: ${dustBalance.toLocaleString()}`);
             console.log('     This is a new wallet - DUST generates over time.\n');
             console.log('  ┌─ Options ─────────────────────────────────────────────────┐');
@@ -437,7 +437,7 @@ async function main() {
     }
 
     const contractAddress = deployed.deployTxData.public.contractAddress;
-    console.log('  ✅ Contract deployed successfully!\n');
+    console.log('  SUCCESS: Contract deployed successfully!\n');
     console.log(`  Contract Address: ${contractAddress}\n`);
 
     // 5. Save deployment info

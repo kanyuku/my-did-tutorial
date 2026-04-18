@@ -80,14 +80,14 @@ async function main() {
 
   // Check for deployment.json to get seed
   if (!fs.existsSync('deployment.json')) {
-    console.error('❌ No deployment.json found! Run: npm run deploy\n');
+    console.error('ERROR: No deployment.json found! Run: npm run deploy\n');
     process.exit(1);
   }
 
   const deployment = JSON.parse(fs.readFileSync('deployment.json', 'utf-8'));
 
   if (!fs.existsSync('.midnight-seed')) {
-    console.error('❌ No .midnight-seed file found! Run: npm run deploy\n');
+    console.error('ERROR: No .midnight-seed file found! Run: npm run deploy\n');
     process.exit(1);
   }
   const seed = fs.readFileSync('.midnight-seed', 'utf-8').trim();
@@ -118,12 +118,12 @@ async function main() {
       console.log(`  3. Request tokens and wait ~2-5 minutes`);
       console.log(`  4. Run this command again to check balance\n`);
     } else {
-      console.log('  ✅ Wallet is funded and ready!\n');
+      console.log('  SUCCESS: Wallet is funded and ready!\n');
     }
 
     await wallet.stop();
   } catch (error) {
-    console.error('\n❌ Error:', error instanceof Error ? error.message : error);
+    console.error('\nERROR:', error instanceof Error ? error.message : error);
     process.exit(1);
   }
 }

@@ -13,6 +13,10 @@ import { issueKYCCredential } from '../src/credentials.js';
  * SELECTIVE DISCLOSURE PROOF DEMO (Interactive)
  * Alice proves she is eligible (Correct country, Not Expired) 
  * without revealing her PII or Passport number to the platform.
+ * 
+ * PRIVACY GUARANTEE:
+ * 1. PII (Name, Passport Number) stays locally encrypted.
+ * 2. Hashed identifiers are used to prevent multi-accounting without linking to real identity.
  */
 
 async function runProof() {
@@ -80,7 +84,7 @@ async function runProof() {
             PublicCommitment      // Public
         );
 
-        console.log("\n  ✅ ZK Proof Generated Successfully!");
+        console.log("\n  SUCCESS: ZK Proof Generated Successfully!");
         
         // Simulations of what the platform sees
         console.log("  ╔════════════════ PLATFORM VIEW ═══════════════╗");
@@ -90,9 +94,15 @@ async function runProof() {
         console.log("  ╚══════════════════════════════════════════════╝");
         console.log("\n  Reality: The platform never saw your passport number or actual country!");
 
-    } catch (error) {
-        console.error("\n  ❌ Proof Generation Failed:", error);
-        console.log("  (Check if you entered a sanctioned country like 'RU' or an expired date)");
+    } catch (error: any) {
+        if (error.message?.includes('fetch failed') || error.message?.includes('ECONNREFUSED')) {
+            console.error("\n  ❌ ERROR: Could not connect to the Midnight Proof Server.");
+            console.error("  Please ensure the sidecar is running:");
+            console.error("  docker run -p 6300:6300 midnightntwrk/proof-server:8.0.3\n");
+        } else {
+            console.error("\n  ERROR: Proof Generation Failed:", error);
+            console.log("  (Check if you entered a sanctioned country like 'RU' or an expired date)");
+        }
     }
 }
 

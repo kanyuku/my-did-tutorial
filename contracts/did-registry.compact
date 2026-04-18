@@ -9,6 +9,10 @@ export ledger did_registry: Map<Bytes<32>, DIDEntry>;
 
 witness controller_secret_key(): Bytes<32>;
 
+/**
+ * Deterministically derives a Public Key from a Secret Key.
+ * Uses 'persistentHash' which is a Poseidon-based hash function optimized for ZK.
+ */
 circuit derive_pk(sk: Bytes<32>): Bytes<32> {
     return persistentHash<Vector<2, Bytes<32>>>([
         pad(32, "midnight:pk:"),
@@ -16,11 +20,20 @@ circuit derive_pk(sk: Bytes<32>): Bytes<32> {
     ]);
 }
 
+/**
+ * Registers a new DID on the ledger.
+ * 
+ * Cryptography:
+ * - did_id: The unique identifier for the DID.
+ * - document_commitment: A hash of the DID Document (keeps the full document off-chain).
+ * - controller_pk: The public key authorized to update this DID.
+ */
 circuit registerDID(
     did_id: Bytes<32>,
     document_commitment: Bytes<32>,
     controller_pk: Bytes<32>
 ): [] {
+    // disclose() makes these values public in the resulting transaction
     const d_id = disclose(did_id);
     const d_doc = disclose(document_commitment);
     const d_pk = disclose(controller_pk);

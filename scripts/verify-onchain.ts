@@ -132,7 +132,7 @@ async function main() {
   console.log('╚══════════════════════════════════════════════════════╝\n');
 
   if (!fs.existsSync('deployment.verifier.json')) {
-    console.error('❌ verifier contract not deployed! Run npm run deploy-verifier first.\n');
+    console.error('ERROR: verifier contract not deployed! Run npm run deploy-verifier first.\n');
     process.exit(1);
   }
 
@@ -165,7 +165,8 @@ async function main() {
 
   try {
     // We first compute the commitment locally to match what's on the ledger
-    const { result: PublicCommitment } = await deployed.circuits.computeCommitment(
+    console.log("  BEGINNER TIP: We are matching your private DOB against the on-chain commitment.");
+    const { result: PublicCommitment } = await deployed.circuits.computeAgeCommitment(
         providers as any,
         secretDOBBytes,
         mockSalt
@@ -179,7 +180,7 @@ async function main() {
       PublicCommitment  // Ledger commitment (disclosed)
     );
 
-    console.log('  ✅ SUCCESS: ZK Proof Verified On-Chain!');
+    console.log('  SUCCESS: ZK Proof Verified On-Chain!');
     console.log(`     Transaction ID : ${tx.public.txId}`);
     console.log(`     Block Height   : ${tx.public.blockHeight}\n`);
 
@@ -194,7 +195,7 @@ async function main() {
     }
 
   } catch (error: any) {
-    console.error('\n  ❌ Verification Failed:', error?.message ?? error);
+    console.error('\n  ERROR: Verification Failed:', error?.message ?? error);
   } finally {
     await walletCtx.wallet.stop();
   }

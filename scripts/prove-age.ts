@@ -59,18 +59,21 @@ async function runProof() {
     const context = {
         proofProvider,
         zkConfigProvider,
-        currentQueryContext: { 
+        currentQueryContext: {
             address: dummyContractAddress(),
             // Mock the ledger query so stateful circuits can evaluate locally without crashing
-            query: async () => [] 
+            query: async () => []
         },
         gasCost: emptyRunningCost()
     };
 
-    // 2. Synchronize our commitment hash with the Compact circuit using the pure computeCommitment
+    // 2. Synchronize our commitment hash with the Compact circuit using the pure computeAgeCommitment
     console.log("  [Crypto] Computing matching persistentHash commitment...");
+    console.log("  BEGINNER TIP: This commitment is a 'Zero-Knowledge' fingerprint of your data.");
+    console.log("     It proves you HAVE the data without showing what it IS.");
+
     const secretDOBBigInt = BigInt(numericalDOB);
-    const { result: PublicCommitment } = await verifierInstance.circuits.computeCommitment(
+    const { result: PublicCommitment } = await verifierInstance.circuits.computeAgeCommitment(
         context as any,
         secretDOBBigInt,
         UserSalt
@@ -80,7 +83,7 @@ async function runProof() {
     const today = new Date();
     const thresholdDate = new Date(today.getFullYear() - 18, today.getMonth(), today.getDate());
     const thresholdDOB = BigInt(thresholdDate.toISOString().slice(0, 10).replace(/-/g, ''));
-    
+
     console.log(`  [Policy] Proving age is >= 18 (DOB <= ${thresholdDOB})...`);
     console.log("  Generating cryptographic proof (this keeps your DOB hidden)...");
 
@@ -95,7 +98,7 @@ async function runProof() {
             PublicCommitment        // The expected ledger commitment (Public)
         );
 
-        console.log("  ✅ OFFCHAIN ZK Proof Generated Successfully!");
+        console.log("  SUCCESS: OFFCHAIN ZK Proof Generated Successfully!");
 
         // 5. Test Onchain Circuit
         console.log("\n  --- TEST 2: ONCHAIN VERIFICATION (Stateful Circuit) ---");
@@ -113,8 +116,14 @@ async function runProof() {
         console.log(`  Both tests proved to the network that your age satisfies the 18+ condition`);
         console.log(`  WITHOUT disclosing your birthdate (${numericalDOB}) to the verifier.`);
 
-    } catch (error) {
-        console.error("\n  Proof Generation Failed:", error);
+    } catch (error: any) {
+        if (error.message?.includes('fetch failed') || error.message?.includes('ECONNREFUSED')) {
+            console.error("\n  ❌ ERROR: Could not connect to the Midnight Proof Server.");
+            console.error("  Please ensure the sidecar is running:");
+            console.error("  docker run -p 6300:6300 midnightntwrk/proof-server:8.0.3\n");
+        } else {
+            console.error("\n  Proof Generation Failed:", error);
+        }
     }
 }
 
